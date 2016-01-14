@@ -1,0 +1,12 @@
+{
+  "compact": false,
+  "comments": false,
+  "presets": ["es2015"],
+  "plugins": [
+    "syntax-async-functions",
+    "syntax-object-rest-spread",
+    "transform-object-rest-spread",
+    "transform-regenerator",
+    "transform-runtime"
+  ]
+}

@@ -1,0 +1,39 @@
+#!/usr/bin/node
+
+var getopt = require('node-getopt');
+var env = require('../lib/env');
+
+var cmd = getopt.create([
+    ['c', 'cache-path=ARG', 'set cache database path'],
+    ['l', 'log-path=ARG', 'set log file path'],
+    ['p', 'path=ARG', 'set base path'],
+    ['v', 'version', 'show version']
+]).bindHelp().parseSystem();
+
+if (cmd.options['version']) {
+    console.log(env.APP_VERSION);
+    process.exit();
+}
+
+require('daemon')();
+
+var args = [];
+if (cmd.options['path']) {
+    args.push('--path=' + cmd.options['path']);
+}
+if (cmd.options['cache-path']) {
+    args.push('--cache-path=' + cmd.options['cache-path']);
+}
+if (cmd.options['log-path']) {
+    args.push('--log-path=' + cmd.options['log-path']);
+}
+
+process.title = 'kcsp monitor';
+
+var forever = require('forever-monitor');
+
+var child = new (forever.Monitor)(__dirname + '/../lib/cli.js', {
+    args: args
+});
+
+child.start();
