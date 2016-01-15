@@ -1,20 +1,34 @@
 import getopt from 'node-getopt';
 
-let cmd = getopt.create([
-    ['b', 'path=ARG', 'set base path'],
-    ['c', 'cache-path=ARG', 'set cache database path'],
-    ['l', 'log-path=ARG', 'set log file path'],
-    ['p', 'port=ARG', 'set web port']
+let opt = getopt.create([
+    ['b', 'path=ARG',        'set the base path for all related files'],
+    ['c', 'cache-path=ARG',  'set the database directory for cache'],
+    ['l', 'log-path=ARG',    'set the log directory'],
+    ['p', 'port=ARG',        'set the port for requests, default to 8099'],
+    ['h', 'help',            'show this help'],
+    ['v', 'version',         'show version']
 ]).bindHelp().parseSystem();
 
-let basePath = cmd.options['path'] || __dirname + '/..';
-let logPath = cmd.options['log-path'] || (basePath + '/log');
-let cachePath = cmd.options['cache-path'] || (basePath + '/cache');
-let port = cmd.options['cache-path'] ? parseInt(cmd.options['cache-path']) : 8099;
+let basePath = opt.options['path'] || __dirname + '/..';
+let logPath = opt.options['log-path'] || (basePath + '/log');
+let cachePath = opt.options['cache-path'] || (basePath + '/cache');
+let port = opt.options['port'] ? parseInt(opt.options['port']) : 8099;
+
+function getArgs() {
+    let args = [];
+    ['path', 'cache-path', 'log-path', 'port'].forEach(arg => {
+        if (opt.options[arg]) {
+            args.push(`--${arg}=${opt.options[arg]}`)
+        }
+    });
+    return args;
+}
 
 module.exports = {
     basePath: basePath,
     cachePath: cachePath,
     logPath: logPath,
-    port: port
+    port: port,
+    execOpt: opt,
+    getArgs: getArgs
 };

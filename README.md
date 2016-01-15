@@ -21,8 +21,10 @@ Usage
 ```
 Usage: kcsp {OPTIONS}
 Options:
-        --path, -b  base path for all related files
-  --cache-path, -c  database directory for cache
-    --log-path, -l  log directory
-        --port, -p  port for requests, default to 8099
+  -b, --path        set the base path for all related files
+  -c, --cache-path  set the database directory for cache
+  -l, --log-path    set the log directory
+  -p, --port        set the port for requests, default to 8099
+  -h, --help        show this help
+  -v, --version     show version 
 ```
