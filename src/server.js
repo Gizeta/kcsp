@@ -132,6 +132,18 @@ function validateRequest(req) {
     return false;
 }
 
+function validateResponse(resp) {
+    try {
+        let svdata = JSON.parse(resp.substring(7));
+        if (svdata.api_result === 1) {
+            return true;
+        }
+        return false;
+    } catch (err) {
+        return false;
+    }
+}
+
 async function processRequest(req) {
     let cacheable = kcCacheableApiList.indexOf(req.params.requestPath) >= 0;
     let cacheToken = cacheable ? req.params.requestPath : req.headers['cache-token'];
@@ -187,6 +199,7 @@ async function postToRemote(conn) {
                 ].join('\n\t'));
 
                 if (conn.cacheable) {
+                    db.del(conn.cacheToken);
                     reject(new Error('unavailable'));
                 }
                 else {
@@ -207,20 +220,25 @@ async function postToRemote(conn) {
                 ].join('\n\t'));
 
                 if (conn.cacheable) {
-                    reject(new Error('unavailable'));
+                    db.del(conn.cacheToken);
                 }
                 else {
                     db.put(conn.cacheToken, body);
-                    resolve({
-                        statusCode: response.statusCode,
-                        content: body
-                    });
                 }
+                resolve({
+                    statusCode: response.statusCode,
+                    content: body
+                });
                 return;
             }
 
             logger.info(`remote server responsed, code: ${response.statusCode}`);
-            db.put(conn.cacheToken, body);
+            if (conn.cacheable && !validateResponse(body)) {
+                db.del(conn.cacheToken);
+            }
+            else {
+                db.put(conn.cacheToken, body);
+            }
             resolve({
                 statusCode: response.statusCode,
                 content: body
