@@ -1,12 +1,12 @@
 {
-  "compact": false,
+  "compact": true,
   "comments": false,
-  "presets": ["es2015"],
   "plugins": [
     "syntax-async-functions",
     "syntax-object-rest-spread",
+    "transform-es2015-modules-commonjs",
+    "transform-async-to-generator",
     "transform-object-rest-spread",
-    "transform-regenerator",
-    "transform-runtime"
+    "transform-strict-mode"
   ]
 }

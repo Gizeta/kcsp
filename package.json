@@ -1,6 +1,6 @@
 {
   "name": "kcsp",
-  "version": "0.4.1",
+  "version": "0.4.2",
   "description": "A simple proxy server for KanColle to avoid network problems.",
   "bin": {
     "kcsp": "./bin/kcsp"
@@ -28,7 +28,6 @@
   },
   "homepage": "https://github.com/Gizeta/kcsp",
   "dependencies": {
-    "babel-polyfill": "^6.3.14",
     "daemon": "^1.1.0",
     "forever-monitor": "^1.7.0",
     "level": "^1.4.0",
@@ -39,8 +38,11 @@
   },
   "devDependencies": {
     "babel-cli": "^6.4.0",
+    "babel-plugin-syntax-export-extensions": "^6.3.13",
+    "babel-plugin-transform-async-to-generator": "^6.4.6",
+    "babel-plugin-transform-es2015-modules-commonjs": "^6.4.5",
+    "babel-plugin-transform-export-extensions": "^6.4.0",
     "babel-plugin-transform-object-rest-spread": "^6.3.13",
-    "babel-plugin-transform-regenerator": "^6.3.26",
-    "babel-preset-es2015": "^6.3.13"
+    "babel-plugin-transform-strict-mode": "^6.3.13"
   }
 }
