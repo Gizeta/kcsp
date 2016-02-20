@@ -200,12 +200,11 @@ async function postToRemote(conn) {
 
                 if (conn.cacheable) {
                     db.del(conn.cacheToken);
-                    reject(new Error('unavailable'));
                 }
                 else {
                     db.put(conn.cacheToken, '__BLOCK__');
-                    reject(new Error('gone'));
                 }
+                reject(new Error('gone'));
                 return;
             }
 
