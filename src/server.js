@@ -100,7 +100,7 @@ let server = http.createServer((req, resp) => {
         }
         catch(err) {
             let errCode = 500;
-            switch(err) {
+            switch(err.message) {
                 case "unavailable":
                     errCode = 503;
                     break;
