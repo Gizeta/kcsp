@@ -16,7 +16,7 @@ function makeRequest(opts) {
             if (err) {
                 reject(err)
             } else {
-                resolve([res, body])
+                resolve(res)
             }
         })
     })
@@ -33,14 +33,11 @@ function log(desc, msg) {
 }
 
 
-function filterHeaders(data) {
-    var headers = {}
-    for (var key in data) {
-        if (key !== 'connection' &&
-            key !== 'proxy-connection' &&
-            key !== 'cache-token' &&
-            key !== 'request-uri') {
-            headers[key] = data[key]
+function filterHeaders(origin) {
+    let headers = {}
+    for (let key in origin) {
+        if (! ['connection', 'proxy-connection', 'cache-token', 'request-uri'].includes(key)) {
+            headers[key] = origin[key]
         }
     }
     return headers
@@ -83,23 +80,26 @@ async function onRequest(req, resp) {
             log(desc, `Try #${i}`)
             try {
                 rr = await makeRequest(opts)
-                break
-            } catch (err) {
-                console.error(err)
+                if (! (rr.statusCode === 503)) {
+                    break
+                }
+            } catch (e) {
+                if (! ['ECONNRESET', 'ENOTFOUND', 'ESOCKETTIMEDOUT', 'ETIMEDOUT', 'ECONNREFUSED', 'EHOSTUNREACH', 'EPIPE', 'EAI_AGAIN'].includes(e.code)) {
+                    console.error(e)
+                }
             }
             await delay(DELAY)
         }
         if (rr) {
-            let [rResp, rBody] = rr
-            resp.writeHead(rResp.statusCode, filterHeaders(rResp.headers))
-            resp.end(rBody)
+            resp.writeHead(rr.statusCode, filterHeaders(rr.headers))
+            resp.end(rr.body)
         } else {
             resp.writeHead(503)
             resp.end()
         }
 
         let etime = Date.now()
-        log(desc, `Finish in ${(etime - stime) / 1000}s`)
+        log(desc, `Fin ${(etime - stime) / 1000}s`)
     })
 }
 
