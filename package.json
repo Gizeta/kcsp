@@ -3,7 +3,8 @@
   "version": "0.4.3",
   "description": "A simple proxy server for KanColle to avoid network problems.",
   "bin": {
-    "kcsp": "./bin/kcsp"
+    "kcsp": "./bin/kcsp",
+    "kcsp-client": "./bin/kcsp-client"
   },
   "scripts": {
     "compile": "babel -d lib/ src/",
