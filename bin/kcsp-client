@@ -1,3 +1,25 @@
 #!/usr/bin/node
 
-require('../lib/client')
+const Getopt = require('node-getopt');
+const client = require('../lib/client');
+
+let getopt = new Getopt([
+    ['s', 'host=HOST',  'kcsp server host'],
+    ['p', 'port=8099',  'kcsp server port'],
+    ['r', 'retry=100',  'maximum retry times'],
+    ['t', 'timeout=20', 'timeout in seconds'],
+    ['h', 'help',       'show this help']
+]).bindHelp();
+let opts = getopt.parseSystem();
+
+if (opts.options['host'] == null) {
+    getopt.showHelp();
+    process.exit();
+}
+
+let host = opts.options['host'];
+let port = opts.options['port'] || 8099;
+let retry = opts.options['retry'] || 100;
+let timeout = opts.options['timeout'] || 20;
+
+client(host, port, retry, timeout);

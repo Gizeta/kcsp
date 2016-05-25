@@ -4,10 +4,7 @@ import http from 'http';
 import url from 'url';
 import request from 'request';
 
-const PROXY   = 'http://example.org:8099/'
-const TIMEOUT = 20 * 1000
-const DELAY   =  2 * 1000
-const RETRY   = 100
+let PROXY, RETRY, TIMEOUT, DELAY;
 
 
 function makeRequest(opts) {
@@ -103,7 +100,16 @@ async function onRequest(req, resp) {
     })
 }
 
-let httpd = http.createServer()
-httpd.on('request', onRequest)
-httpd.listen(8099, '127.0.0.1')
-console.log('HTTP proxy server listen at 8099...')
+function start(host, port, retry, timeout) {
+    PROXY = `http://${host}:${port}/`
+    RETRY = retry
+    TIMEOUT = timeout * 1000
+    DELAY = 2 * 1000
+
+    let httpd = http.createServer()
+    httpd.on('request', onRequest)
+    httpd.listen(8099, '127.0.0.1')
+    console.log('HTTP proxy server listen at 8099...')
+}
+
+module.exports = start;
