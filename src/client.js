@@ -1,11 +1,13 @@
-#!/usr/bin/env babel-node
 "use strict"
 
-const http = require('http')
-const request = require('request')
+import http from 'http';
+import url from 'url';
+import request from 'request';
 
-const PROXY = 'http://example.org:8099/'
-const RETRY = 100
+const PROXY   = 'http://example.org:8099/'
+const TIMEOUT = 20 * 1000
+const DELAY   =  2 * 1000
+const RETRY   = 100
 
 
 function makeRequest(opts) {
@@ -26,11 +28,9 @@ function delay(ms) {
     })
 }
 
-function lspad(n) {
-    let p = "  "
-    let s = n.toString()
-    return (p + s).slice(-p.length);
-};
+function log(desc, msg) {
+    console.log(desc, ':', msg)
+}
 
 
 function filterHeaders(data) {
@@ -47,8 +47,8 @@ function filterHeaders(data) {
 }
 
 function getRequestId(req) {
-    let time = Date.now()
-    let nonce = Math.random().toString(36).substring(2, 18)
+    let time = Date.now().toString().slice(-8)
+    let nonce = Math.random().toString(36).slice(-16)
     return `${time}-${nonce}`
 }
 
@@ -63,6 +63,7 @@ async function onRequest(req, resp) {
             url:     req.url,
             headers: filterHeaders(req.headers),
             proxy:   PROXY,
+            timeout: TIMEOUT,
             encoding: null,
             followRedirect: false
         }
@@ -73,18 +74,20 @@ async function onRequest(req, resp) {
         opts.headers['request-uri'] = opts.url
         opts.headers['cache-token'] = token
 
-        let desc = `${token} ${opts.url}`
+        let oUrl = url.parse(opts.url)
+        let desc = `${token} ${oUrl.pathname}`
+        let stime = Date.now()
 
         let rr = null
         for (let i of Array(RETRY).keys()) {
-            console.log(`Try ${lspad(i)}: ${desc}`)
+            log(desc, `Try #${i}`)
             try {
                 rr = await makeRequest(opts)
                 break
             } catch (err) {
-                console.log(err)
+                console.error(err)
             }
-            await delay(3000)
+            await delay(DELAY)
         }
         if (rr) {
             let [rResp, rBody] = rr
@@ -94,11 +97,13 @@ async function onRequest(req, resp) {
             resp.writeHead(503)
             resp.end()
         }
-        console.log(`Finish: ${desc}`)
+
+        let etime = Date.now()
+        log(desc, `Finish in ${(etime - stime) / 1000}s`)
     })
 }
 
 let httpd = http.createServer()
 httpd.on('request', onRequest)
-httpd.listen(8099)
-console.log('Server listen at 8099...')
+httpd.listen(8099, '127.0.0.1')
+console.log('HTTP proxy server listen at 8099...')
