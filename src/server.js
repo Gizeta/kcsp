@@ -13,33 +13,6 @@ const responseError = {
     503: '<h1>HTTP 503 - Service Unavailable</h1>暂未获取到数据。请稍后再试。'
 }
 
-const kcIpList = [
-    '203.104.209.7',
-    '203.104.209.71',
-    '125.6.184.15',
-    '125.6.184.16',
-    '125.6.187.205',
-    '125.6.187.229',
-    '125.6.187.253',
-    '125.6.188.25',
-    '203.104.248.135',
-    '125.6.189.7',
-    '125.6.189.39',
-    '125.6.189.71',
-    '125.6.189.103',
-    '125.6.189.135',
-    '125.6.189.167',
-    '125.6.189.215',
-    '125.6.189.247',
-    '203.104.209.23',
-    '203.104.209.39',
-    '203.104.209.55',
-    '203.104.209.102'
-];
-const kcCacheableApiList = [
-    '/kcsapi/api_start2'
-];
-
 let server = http.createServer((req, resp) => {
     let chunks = [];
     let chunkSize = 0;
@@ -118,13 +91,11 @@ let server = http.createServer((req, resp) => {
 });
 
 function validateRequest(req) {
-    if (req.method !== 'POST' ||
-        req.headers['request-uri'] == null ||
-        req.headers['cache-token'] == null)
+    if (req.headers['cache-token'] == null)
         return false;
 
-    let objUrl = url.parse(req.headers['request-uri']);
-    if (objUrl.pathname.startsWith('/kcsapi/') && kcIpList.indexOf(objUrl.hostname) >= 0) {
+    let objUrl = url.parse(req.url);
+    if (objUrl.pathname.startsWith('/kcsapi/')) {
         req.params.requestPath = objUrl.pathname;
         return true;
     }
@@ -132,21 +103,8 @@ function validateRequest(req) {
     return false;
 }
 
-function validateResponse(resp) {
-    try {
-        let svdata = JSON.parse(resp.substring(7));
-        if (svdata.api_result === 1) {
-            return true;
-        }
-        return false;
-    } catch (err) {
-        return false;
-    }
-}
-
 async function processRequest(req) {
-    let cacheable = kcCacheableApiList.indexOf(req.params.requestPath) >= 0;
-    let cacheToken = cacheable ? req.params.requestPath : req.headers['cache-token'];
+    let cacheToken = req.headers['cache-token'];
 
     logger.info(`process request, user: ${req.params.ip}, token: ${cacheToken}`);
 
@@ -168,11 +126,11 @@ async function processRequest(req) {
     }
     else {
         return await postToRemote({
-            url: req.headers['request-uri'],
+            method: req.method,
+            url: req.url,
             headers: filterHeaders(req.headers),
             postData: req.params.postData,
-            cacheToken: cacheToken,
-            cacheable: cacheable
+            cacheToken: cacheToken
         });
     }
 }
@@ -182,7 +140,8 @@ async function postToRemote(conn) {
 
     db.put(conn.cacheToken, '__REQUEST__');
     return new Promise((resolve, reject) => {
-        request.post({
+        request({
+            method: conn.method,
             url: conn.url,
             form: conn.postData,
             headers: conn.headers,
@@ -198,12 +157,7 @@ async function postToRemote(conn) {
                     `post: ${conn.postData}`
                 ].join('\n\t'));
 
-                if (conn.cacheable) {
-                    db.del(conn.cacheToken);
-                }
-                else {
-                    db.put(conn.cacheToken, '__BLOCK__');
-                }
+                db.put(conn.cacheToken, '__BLOCK__');
                 reject(new Error('gone'));
                 return;
             }
@@ -217,27 +171,11 @@ async function postToRemote(conn) {
                     `post: ${conn.postData}`,
                     `response: ${body}`
                 ].join('\n\t'));
-
-                if (conn.cacheable) {
-                    db.del(conn.cacheToken);
-                }
-                else {
-                    db.put(conn.cacheToken, body);
-                }
-                resolve({
-                    statusCode: response.statusCode,
-                    content: body
-                });
-                return;
+            } else {
+                logger.info(`remote server responsed, code: ${response.statusCode}`);
             }
 
-            logger.info(`remote server responsed, code: ${response.statusCode}`);
-            if (conn.cacheable && !validateResponse(body)) {
-                db.del(conn.cacheToken);
-            }
-            else {
-                db.put(conn.cacheToken, body);
-            }
+            db.put(conn.cacheToken, body);
             resolve({
                 statusCode: response.statusCode,
                 content: body
@@ -254,8 +192,7 @@ function filterHeaders(data) {
             key !== 'connection' &&
             key !== 'proxy-connection' &&
             key !== 'content-length' &&
-            key !== 'cache-token' &&
-            key !== 'request-uri') {
+            key !== 'cache-token') {
             headers[key] = data[key];
         }
     }
