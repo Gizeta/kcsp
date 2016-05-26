@@ -1,10 +1,11 @@
-import http from 'http';
-import url from 'url';
-import request from 'request';
-import zlib from 'zlib';
-import logger from './logger';
-import * as db from './db';
-import env from './env';
+import http from 'http'
+import url from 'url'
+import zlib from 'zlib'
+import request from 'request'
+import querystring from 'querystring'
+import logger from './logger'
+import * as db from './db'
+import env from './env'
 
 const responseError = {
     403: '<h1>HTTP 403 - Forbidden</h1>参数错误或无访问权限。',
@@ -14,178 +15,149 @@ const responseError = {
 }
 
 let server = http.createServer((req, resp) => {
-    let chunks = [];
-    let chunkSize = 0;
-    req.params = {
-        ip: getIp(req),
-        requestPath: '',
-        postData: '',
-        requestTime: new Date().getTime()
-    };
+    let stime = Date.now()
+    let ip = getIp(req)
 
+    let chunks = []
     req.on('data', chunk => {
-        chunks.push(chunk);
-        chunkSize += chunk.length;
-    });
+        chunks.push(chunk)
+    })
 
     req.on('end', async () => {
-        let data = null;
-        switch (chunks.length) {
-            case 0:
-                data = new Buffer(0);
-                break;
-            case 1:
-                data = chunks[0];
-                break;
-            default:
-                data = new Buffer(chunkSize);
-                for (var i = 0, pos = 0, l = chunks.length; i < l; i++) {
-                    var chunk = chunks[i];
-                    chunk.copy(data, pos);
-                    pos += chunk.length;
-                }
-                break;
-        }
-        req.params.postData = data.toString();
-
-        logger.info(`${req.params.ip} requests ${req.url}`);
-
-        let locked = await db.get('lock');
-        if (locked === 'true') {
-            renderErrorPage(resp, 503);
-            logger.info(`send error 503 to ${req.params.ip}, handled in ${(new Date().getTime() - req.params.requestTime) / 1000}s`);
-            return;
-        }
-
-        if (!validateRequest(req)) {
-            renderErrorPage(resp, 403);
-            logger.info(`send error 403 to ${req.params.ip}, handled in ${(new Date().getTime() - req.params.requestTime) / 1000}s`);
-            return;
-        }
+        logger.info(`accept request: ${req.url}, ip ${ip}`)
+        let body = Buffer.concat(chunks)
 
         try {
-            let content = await processRequest(req);
+            let locked = await db.get('lock')
+            if (locked === 'true') {
+                throw new Error('unavailable')
+            }
+            let urlp = url.parse(req.url)
+            if (! urlp.pathname.startsWith('/kcsapi/')) {
+                throw new Error('forbidden')
+            }
+            let id = getRequestId(req, body)
+
+            let content = await processRequest(req, body, id)
             renderContent(resp, {
                 ...content,
                 acceptEncoding: req.headers['accept-encoding'] || ''
-            });
-            logger.info(`response to ${req.params.ip}, handled in ${(new Date().getTime() - req.params.requestTime) / 1000}s`);
+            })
+            logger.info(`response to: ${req.url}, ip ${ip}`)
         }
         catch(err) {
-            let errCode = 500;
+            let errCode = 500
             switch(err.message) {
                 case "unavailable":
-                    errCode = 503;
-                    break;
+                    errCode = 503
+                    break
                 case "gone":
-                    errCode = 410;
-                    break;
+                    errCode = 410
+                    break
                 case "forbidden":
-                    errCode = 403;
-                    break;
+                    errCode = 403
+                    break
             }
-            renderErrorPage(resp, errCode);
-            logger.info(`send error ${errCode} to ${req.params.ip}, handled in ${(new Date().getTime() - req.params.requestTime) / 1000}s`);
+            renderErrorPage(resp, errCode)
+            logger.info(`response ${errCode}: ${req.url}, ip ${ip}`)
         }
-    });
-});
 
-function validateRequest(req) {
-    if (req.headers['cache-token'] == null)
-        return false;
+        logger.info(`finish request: ${req.url}, ip ${ip}, handled in ${(Date.now() - stime) / 1000}s`)
+    })
+})
 
-    let objUrl = url.parse(req.url);
-    if (objUrl.pathname.startsWith('/kcsapi/')) {
-        req.params.requestPath = objUrl.pathname;
-        return true;
-    }
-
-    return false;
+function getIp(req) {
+    return req.headers['x-forwarded-for'] ||
+        req.connection.remoteAddress ||
+        req.socket.remoteAddress ||
+        req.connection.socket.remoteAddress
 }
 
-async function processRequest(req) {
-    let cacheToken = req.headers['cache-token'];
+function getRequestId(req, body) {
+    let bodyp = querystring.parse(body.toString())
+    let user  = bodyp.api_token
+    let token = req.headers['cache-token']
+    if (user != null && token != null) {
+        return `${user}-${token}`
+    } else {
+        throw new Error('forbidden')
+    }
+}
 
-    logger.info(`process request, user: ${req.params.ip}, token: ${cacheToken}`);
+async function processRequest(req, body, id) {
+    logger.info(`process request: ${req.url}, id ${id}`)
 
-    let data = await db.get(cacheToken);
+    let data = await db.get(id)
     if (data === '__REQUEST__') {
-        throw new Error('unavailable');
+        throw new Error('unavailable')
     }
     else if (data === '__BLOCK__') {
-        throw new Error('gone');
+        throw new Error('gone')
     }
     else if (data != null) {
-        /* maybe still need to post to KADOKAWA although api data can be cached like api_start2 */
-        /* not implement to avoid sending repeat request */
-
         return {
             statusCode: 200,
             content: data
-        };
+        }
     }
     else {
-        return await postToRemote({
-            method: req.method,
-            url: req.url,
-            headers: filterHeaders(req.headers),
-            postData: req.params.postData,
-            cacheToken: cacheToken
-        });
+        try {
+            logger.info(`requesting: ${req.url}`)
+            db.put(id, '__REQUEST__')
+
+            let headers = filterHeaders(req.headers)
+            let rr = await makeRequest({
+                method: req.method,
+                url:    req.url,
+                body:   body,
+                headers: headers,
+                timeout: 180000,
+                gzip:    true
+            })
+
+            if (rr.statusCode >= 400) {
+                logger.error([
+                    `request responsed: ${req.url}, code ${rr.statusCode}`,
+                    `body: ${body}`,
+                    `headers: ${JSON.stringify(headers)}`,
+                    `response: ${rr.body}`
+                ].join('\n\t'))
+            } else {
+                logger.info(`request responsed: ${req.url}, code ${rr.statusCode}`)
+            }
+            db.put(id, rr.body)
+            return {
+                statusCode: rr.statusCode,
+                content: rr.body
+            }
+        }
+        catch (e) {
+            logger.error([
+                `request error: ${req.url}`,
+                `error: ${error}`,
+                `body: ${body}`
+                `headers: ${JSON.stringify(headers)}`,
+            ].join('\n\t'))
+            db.put(id, '__BLOCK__')
+            throw new Error('gone')
+        }
     }
 }
 
-async function postToRemote(conn) {
-    logger.info(`requesting ${conn.url}`);
-
-    db.put(conn.cacheToken, '__REQUEST__');
+function makeRequest(opts) {
     return new Promise((resolve, reject) => {
-        request({
-            method: conn.method,
-            url: conn.url,
-            form: conn.postData,
-            headers: conn.headers,
-            timeout: 180000,
-            gzip: true
-        }, function(error, response, body) {
-            if (error) {
-                logger.error([
-                    'meet error during requesting.',
-                    `error: ${error}`,
-                    `url: ${conn.url}`,
-                    `headers: ${JSON.stringify(conn.headers)}`,
-                    `post: ${conn.postData}`
-                ].join('\n\t'));
-
-                db.put(conn.cacheToken, '__BLOCK__');
-                reject(new Error('gone'));
-                return;
-            }
-
-            if (response.statusCode >= 400) {
-                logger.error([
-                    'remote server response error.',
-                    `code: ${response.statusCode}`,
-                    `url: ${conn.url}`,
-                    `headers: ${JSON.stringify(conn.headers)}`,
-                    `post: ${conn.postData}`,
-                    `response: ${body}`
-                ].join('\n\t'));
+        request(opts, (err, res, body) => {
+            if (err) {
+                reject(err)
             } else {
-                logger.info(`remote server responsed, code: ${response.statusCode}`);
+                resolve(res)
             }
-
-            db.put(conn.cacheToken, body);
-            resolve({
-                statusCode: response.statusCode,
-                content: body
-            });
-        });
-    });
+        })
+    })
 }
 
 function filterHeaders(data) {
-    var headers = {};
+    var headers = {}
     for (var key in data) {
         if (key !== 'host' &&
             key !== 'expect' &&
@@ -193,18 +165,10 @@ function filterHeaders(data) {
             key !== 'proxy-connection' &&
             key !== 'content-length' &&
             key !== 'cache-token') {
-            headers[key] = data[key];
+            headers[key] = data[key]
         }
     }
-
-    return headers;
-}
-
-function getIp(req) {
-    return req.headers['x-forwarded-for'] ||
-        req.connection.remoteAddress ||
-        req.socket.remoteAddress ||
-        req.connection.socket.remoteAddress;
+    return headers
 }
 
 function renderContent(resp, data) {
@@ -215,13 +179,13 @@ function renderContent(resp, data) {
                     'meet error during compressing.',
                     `error: ${err}`,
                     `content: ${data.content}`
-                ].join('\n\t'));
-                throw new Error(err);
+                ].join('\n\t'))
+                throw new Error(err)
             }
 
-            resp.writeHead(data.statusCode, {'content-type': 'text/plain', 'content-encoding': 'gzip'});
-            resp.end(result);
-        });
+            resp.writeHead(data.statusCode, {'content-type': 'text/plain', 'content-encoding': 'gzip'})
+            resp.end(result)
+        })
     }
     else if (data.acceptEncoding.indexOf('deflate') >= 0) {
         zlib.deflate(data.content, function(err, result) {
@@ -230,25 +194,25 @@ function renderContent(resp, data) {
                     'meet error during compressing.',
                     `error: ${err}`,
                     `content: ${data.content}`
-                ].join('\n\t'));
-                throw new Error(err);
+                ].join('\n\t'))
+                throw new Error(err)
             }
 
-            resp.writeHead(data.statusCode, {'content-type': 'text/plain', 'content-encoding': 'deflate'});
-            resp.end(result);
-        });
+            resp.writeHead(data.statusCode, {'content-type': 'text/plain', 'content-encoding': 'deflate'})
+            resp.end(result)
+        })
     }
     else {
-        resp.writeHead(data.statusCode, {'content-type': 'text/plain'});
-        resp.end(result);
+        resp.writeHead(data.statusCode, {'content-type': 'text/plain'})
+        resp.end(result)
     }
 }
 
 function renderErrorPage(resp, code) {
-    resp.writeHead(code, {'content-type': 'text/html'});
-    resp.write('<!DOCTYPE html><html><head><meta charset="UTF-8"></head><body>');
-    resp.write(responseError[code]);
-    resp.end('<hr/>Powered by KCSP Server/' + env.APP_VERSION + '</body></html>');
+    resp.writeHead(code, {'content-type': 'text/html'})
+    resp.write('<!DOCTYPE html><html><head><meta charset="UTF-8"></head><body>')
+    resp.write(responseError[code])
+    resp.end('<hr/>Powered by KCSP Server/' + env.APP_VERSION + '</body></html>')
 }
 
-export default server;
+export default server

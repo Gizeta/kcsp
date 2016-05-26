@@ -108,8 +108,11 @@ function start(host, port, retry, timeout) {
 
     let httpd = http.createServer()
     httpd.on('request', onRequest)
-    httpd.listen(8099, '127.0.0.1')
-    console.log('HTTP proxy server listen at 8099...')
+    httpd.listen(8099, '127.0.0.1', () => {
+        let port = httpd.address().port
+        console.log(`Upstream proxy server is ${PROXY}`)
+        console.log(`Local proxy server listen at ${port}`)
+    })
 }
 
 module.exports = start;
