@@ -5,8 +5,7 @@ let opt = getopt.create([
     ['c', 'cache-path=ARG',  'set the database directory for cache'],
     ['l', 'log-path=ARG',    'set the log directory'],
     ['p', 'port=ARG',        'set the port for requests, default to 8099'],
-    ['h', 'help',            'show this help'],
-    ['v', 'version',         'show version']
+    ['h', 'help',            'show this help']
 ]).bindHelp().parseSystem();
 
 let basePath = opt.options['path'] || __dirname + '/..';

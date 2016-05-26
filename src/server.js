@@ -5,7 +5,6 @@ import request from 'request'
 import querystring from 'querystring'
 import logger from './logger'
 import * as db from './db'
-import env from './env'
 
 const responseError = {
     403: '<h1>HTTP 403 - Forbidden</h1>参数错误或无访问权限。',
@@ -212,7 +211,7 @@ function renderErrorPage(resp, code) {
     resp.writeHead(code, {'content-type': 'text/html'})
     resp.write('<!DOCTYPE html><html><head><meta charset="UTF-8"></head><body>')
     resp.write(responseError[code])
-    resp.end('<hr/>Powered by KCSP Server/' + env.APP_VERSION + '</body></html>')
+    resp.end('<hr/>Powered by KCSP Server</body></html>')
 }
 
 export default server

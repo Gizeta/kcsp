@@ -1,14 +1,9 @@
 #!/usr/bin/node
 
-var env = require('../lib/env');
 var config = require('../lib/config')
 
 if (config.execOpt.options['help']) {
     config.execOpt.showHelp();
-    process.exit();
-}
-if (config.execOpt.options['version']) {
-    console.log(env.APP_VERSION);
     process.exit();
 }
 
