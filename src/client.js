@@ -41,9 +41,7 @@ function filterHeaders(origin) {
 }
 
 function getRequestId(req) {
-    let time = Date.now().toString().slice(-8)
-    let nonce = Math.random().toString(36).slice(-16)
-    return `${time}-${nonce}`
+    return Date.now().toString(36)
 }
 
 async function onRequest(req, resp) {
@@ -74,7 +72,7 @@ async function onRequest(req, resp) {
 
         let rr = null
         for (let i of Array(RETRY).keys()) {
-            log(desc, `Try #${i}`)
+            log(desc, `Try # ${i}`)
             try {
                 rr = await makeRequest(opts)
                 if (! (rr.statusCode === 503)) {
