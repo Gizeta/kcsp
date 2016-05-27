@@ -10,6 +10,10 @@
     "prepublish": "npm run compile"
   },
   "author": "Gizeta",
+  "contributors": [{
+    "name": "Dazzy Ding",
+    "url": "https://github.com/yukixz"
+  }],
   "license": "GPL-2.0",
   "files": [
     "bin",
