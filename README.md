@@ -2,9 +2,9 @@
 
 kcsp
 ====
-A simple proxy server for KanColle to avoid network problems.
+A http proxy server designed for KanColle to avoid network problem.
 
-``This package is server-side only. You need to use it with a compatible client.``
+This package is server-side only. You need to use [a compatible client](https://github.com/yukixz/kcsp-client).
 
 License
 -------
@@ -26,5 +26,4 @@ Options:
   -l, --log-path    set the log directory
   -p, --port        set the port for requests, default to 8099
   -h, --help        show this help
-  -v, --version     show version 
 ```
