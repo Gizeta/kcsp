@@ -1,4 +1,5 @@
 import http from 'http'
+import net from 'net'
 import url from 'url'
 import zlib from 'zlib'
 import request from 'request'
@@ -13,7 +14,31 @@ const responseError = {
     503: '<h1>HTTP 503 - Service Unavailable</h1>暂未获取到数据。请稍后再试。'
 }
 
-let server = http.createServer((req, resp) => {
+async function onConnect(req, sock) {
+    let ip = getIp(req)
+    logger.info(`accept connect: ${req.url}, ip ${ip}`)
+
+    let urlp = url.parse(`http://${req.url}`)
+    let rSock = net.createConnection({
+        host: urlp.hostname,
+        port: urlp.port || 80,
+    })
+    rSock.on('connect', () => {
+        logger.info(`process connect: ${req.url}`)
+        sock.write('HTTP/1.1 200 Connection Established\r\n\r\n')
+        sock.pipe(rSock)
+        rSock.pipe(sock)
+    })
+    rSock.on('error', (err) => {
+        logger.info(`process connect error: ${req.url} ${err}`)
+        sock.end()
+        rSock.end()
+    })
+    sock.on('close', () => rSock.end())
+    rSock.on('close', () => sock.end())
+}
+
+async function onRequest(req, resp) {
     let stime = Date.now()
     let ip = getIp(req)
 
@@ -27,21 +52,20 @@ let server = http.createServer((req, resp) => {
         let body = Buffer.concat(chunks)
 
         try {
-            let locked = await db.get('lock')
-            if (locked === 'true') {
-                throw new Error('unavailable')
+            let data;
+            if (isGameAPI(req)) {
+                let locked = await db.get('lock')
+                if (locked === 'true') {
+                    throw new Error('unavailable')
+                }
+                let id = getRequestId(req, body)
+                data = await processAPIRequest(req, body, id)
+            } else {
+                data = await processRequest(req, body)
             }
-            let urlp = url.parse(req.url)
-            if (! urlp.pathname.startsWith('/kcsapi/')) {
-                throw new Error('forbidden')
-            }
-            let id = getRequestId(req, body)
 
-            let content = await processRequest(req, body, id)
-            renderContent(resp, {
-                ...content,
-                acceptEncoding: req.headers['accept-encoding'] || ''
-            })
+            resp.writeHead(data.statusCode, data.headers)
+            resp.end(data.content)
             logger.info(`response to: ${req.url}, ip ${ip}`)
         }
         catch(err) {
@@ -63,7 +87,101 @@ let server = http.createServer((req, resp) => {
 
         logger.info(`finish request: ${req.url}, ip ${ip}, handled in ${(Date.now() - stime) / 1000}s`)
     })
-})
+}
+
+async function processAPIRequest(req, body, id) {
+    logger.info(`process request: ${req.url}, id ${id}`)
+
+    let data = await db.get(id)
+    if (data === '__REQUEST__') {
+        throw new Error('unavailable')
+    }
+    else if (data === '__BLOCK__') {
+        throw new Error('gone')
+    }
+    else if (data != null) {
+        try {
+            let cacheObj = JSON.parse(data)
+            return {
+                statusCode: cacheObj.statusCode,
+                headers:    cacheObj.headers,
+                content:    cacheObj.content,
+            }
+        }
+        catch (err) {
+            logger.info([
+                    'parse db data error:',
+                    `error: ${err}`,
+                    `content: ${data}`
+                ].join('\n\t'))
+            throw new Error('gone')
+        }
+    }
+    else {
+        try {
+            logger.info(`requesting: ${req.url}`)
+            db.put(id, '__REQUEST__')
+
+            let rr = await makeRequest({
+                method:  req.method,
+                url:     req.url,
+                body:    (body.length > 0) ? body : null,
+                headers: filterHeaders(req.headers),
+                timeout: 180000,
+                gzip:    true
+            })
+            if (rr.statusCode >= 400) {
+                logger.error([
+                    `request responsed: ${req.url}, code ${rr.statusCode}`,
+                    `body: ${body}`,
+                    `headers: ${JSON.stringify(req.headers)}`,
+                    `response: ${rr.body}`
+                ].join('\n\t'))
+            } else {
+                logger.info(`request responsed: ${req.url}, code ${rr.statusCode}`)
+            }
+
+            let cacheObj = {
+                statusCode: rr.statusCode,
+                headers:    filterHeaders(rr.headers),
+                content:    rr.body,
+            }
+            db.put(id, JSON.stringify(cacheObj))
+            return cacheObj
+        }
+        catch (err) {
+            logger.error([
+                `request error: ${req.url}`,
+                `error: ${err}`,
+                `body: ${body}`,
+                `headersen -: ${JSON.stringify(req.headers)}`,
+            ].join('\n\t'))
+            db.put(id, '__BLOCK__')
+            throw new Error('gone')
+        }
+    }
+}
+
+async function processRequest(req, body) {
+    try {
+        let rr = await makeRequest({
+            method:  req.method,
+            url:     req.url,
+            body:    (body.length > 0) ? body : null,
+            headers: filterHeaders(req.headers),
+            timeout: 180000,
+            gzip:    true
+        })
+        return {
+            statusCode: rr.statusCode,
+            headers:    filterHeaders(rr.headers),
+            content:    rr.body,
+        }
+    }
+    catch (err) {
+        throw new Error('gone')
+    }
+}
 
 function getIp(req) {
     return req.headers['x-forwarded-for'] ||
@@ -83,64 +201,9 @@ function getRequestId(req, body) {
     }
 }
 
-async function processRequest(req, body, id) {
-    logger.info(`process request: ${req.url}, id ${id}`)
-
-    let data = await db.get(id)
-    if (data === '__REQUEST__') {
-        throw new Error('unavailable')
-    }
-    else if (data === '__BLOCK__') {
-        throw new Error('gone')
-    }
-    else if (data != null) {
-        return {
-            statusCode: 200,
-            content: data
-        }
-    }
-    else {
-        try {
-            logger.info(`requesting: ${req.url}`)
-            db.put(id, '__REQUEST__')
-
-            let headers = filterHeaders(req.headers)
-            let rr = await makeRequest({
-                method: req.method,
-                url:    req.url,
-                body:   body,
-                headers: headers,
-                timeout: 180000,
-                gzip:    true
-            })
-
-            if (rr.statusCode >= 400) {
-                logger.error([
-                    `request responsed: ${req.url}, code ${rr.statusCode}`,
-                    `body: ${body}`,
-                    `headers: ${JSON.stringify(headers)}`,
-                    `response: ${rr.body}`
-                ].join('\n\t'))
-            } else {
-                logger.info(`request responsed: ${req.url}, code ${rr.statusCode}`)
-            }
-            db.put(id, rr.body)
-            return {
-                statusCode: rr.statusCode,
-                content: rr.body
-            }
-        }
-        catch (e) {
-            logger.error([
-                `request error: ${req.url}`,
-                `error: ${error}`,
-                `body: ${body}`
-                `headers: ${JSON.stringify(headers)}`,
-            ].join('\n\t'))
-            db.put(id, '__BLOCK__')
-            throw new Error('gone')
-        }
-    }
+function isGameAPI(req) {
+    let urlp = url.parse(req.url)
+    return urlp.pathname.startsWith('/kcsapi/')
 }
 
 function makeRequest(opts) {
@@ -170,48 +233,16 @@ function filterHeaders(data) {
     return headers
 }
 
-function renderContent(resp, data) {
-    if (data.acceptEncoding.indexOf('gzip') >= 0) {
-        zlib.gzip(data.content, function(err, result) {
-            if (err) {
-                logger.error([
-                    'meet error during compressing.',
-                    `error: ${err}`,
-                    `content: ${data.content}`
-                ].join('\n\t'))
-                throw new Error(err)
-            }
-
-            resp.writeHead(data.statusCode, {'content-type': 'text/plain', 'content-encoding': 'gzip'})
-            resp.end(result)
-        })
-    }
-    else if (data.acceptEncoding.indexOf('deflate') >= 0) {
-        zlib.deflate(data.content, function(err, result) {
-            if (err) {
-                logger.error([
-                    'meet error during compressing.',
-                    `error: ${err}`,
-                    `content: ${data.content}`
-                ].join('\n\t'))
-                throw new Error(err)
-            }
-
-            resp.writeHead(data.statusCode, {'content-type': 'text/plain', 'content-encoding': 'deflate'})
-            resp.end(result)
-        })
-    }
-    else {
-        resp.writeHead(data.statusCode, {'content-type': 'text/plain'})
-        resp.end(result)
-    }
-}
-
 function renderErrorPage(resp, code) {
     resp.writeHead(code, {'content-type': 'text/html'})
     resp.write('<!DOCTYPE html><html><head><meta charset="UTF-8"></head><body>')
     resp.write(responseError[code])
     resp.end('<hr/>Powered by KCSP Server</body></html>')
 }
+
+
+let server = http.createServer()
+server.on('connect', onConnect)
+server.on('request', onRequest)
 
 export default server
