@@ -1,7 +1,6 @@
 import http from 'http'
 import net from 'net'
 import url from 'url'
-import zlib from 'zlib'
 import request from 'request'
 import querystring from 'querystring'
 import logger from './logger'
