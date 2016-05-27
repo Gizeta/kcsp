@@ -82,7 +82,10 @@ async function onRequest(req, resp) {
                     break
             }
             renderErrorPage(resp, errCode)
-            logger.info(`response ${errCode}: ${req.url}, ip ${ip}`)
+            logger.error([
+                `response ${errCode}: ${req.url}, ip ${ip}`,
+                `error: ${err}`
+                ].join('\n\t'))
         }
 
         logger.info(`finish request: ${req.url}, ip ${ip}, handled in ${(Date.now() - stime) / 1000}s`)
@@ -101,18 +104,14 @@ async function processAPIRequest(req, body, id) {
     }
     else if (data != null) {
         try {
-            let cacheObj = JSON.parse(data)
-            return {
-                statusCode: cacheObj.statusCode,
-                headers:    cacheObj.headers,
-                content:    cacheObj.content,
-            }
+            return JSON.parse(data, (key, value) =>
+                (value && value.type === 'Buffer') ? new Buffer(value.data) : value)
         }
         catch (err) {
-            logger.info([
+            logger.error([
                     'parse db data error:',
                     `error: ${err}`,
-                    `content: ${data}`
+                    `data: ${data}`
                 ].join('\n\t'))
             throw new Error('gone')
         }
@@ -127,8 +126,8 @@ async function processAPIRequest(req, body, id) {
                 url:     req.url,
                 body:    (body.length > 0) ? body : null,
                 headers: filterHeaders(req.headers),
+                encoding: null,
                 timeout: 180000,
-                gzip:    true
             })
             if (rr.statusCode >= 400) {
                 logger.error([
@@ -154,7 +153,7 @@ async function processAPIRequest(req, body, id) {
                 `request error: ${req.url}`,
                 `error: ${err}`,
                 `body: ${body}`,
-                `headersen -: ${JSON.stringify(req.headers)}`,
+                `headers: ${JSON.stringify(req.headers)}`,
             ].join('\n\t'))
             db.put(id, '__BLOCK__')
             throw new Error('gone')
@@ -163,14 +162,14 @@ async function processAPIRequest(req, body, id) {
 }
 
 async function processRequest(req, body) {
+    logger.info(`process request: ${req.url}`)
     try {
         let rr = await makeRequest({
             method:  req.method,
             url:     req.url,
             body:    (body.length > 0) ? body : null,
             headers: filterHeaders(req.headers),
-            timeout: 180000,
-            gzip:    true
+            encoding: null,
         })
         return {
             statusCode: rr.statusCode,
@@ -179,7 +178,7 @@ async function processRequest(req, body) {
         }
     }
     catch (err) {
-        throw new Error('gone')
+        throw new Error('unavailable')
     }
 }
 
